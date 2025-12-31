@@ -52,7 +52,12 @@ public class TtsManager {
     public void speak(String rawText) {
         if (rawText == null || rawText.isEmpty()) return;
 
-        String cleanText = removeThinkTags(rawText);
+        // 1. 过滤 DeepSeek 的 <think> 标签
+        String textWithoutThink = removeThinkTags(rawText);
+        
+        // 2. 过滤标点符号 (新增)
+        String cleanText = removePunctuation(textWithoutThink);
+        
         if (cleanText.trim().isEmpty()) return;
 
         stop();
@@ -70,6 +75,12 @@ public class TtsManager {
 
     private String removeThinkTags(String text) {
         return text.replaceAll("(?s)<think>.*?</think>", "").trim();
+    }
+    
+    // 新增：移除标点符号，避免朗读出来
+    private String removePunctuation(String text) {
+        // 替换常见标点为空格，保留文字和数字
+        return text.replaceAll("[\\p{P}\\p{S}]", " ");
     }
 
     private boolean isBurmese(String text) {
@@ -97,7 +108,7 @@ public class TtsManager {
         jsonBody.set("input", text);
         jsonBody.set("voice", voiceId);
 
-        // ★★★ 修复：参数顺序调整 (MediaType, String) 适配 OkHttp 3/4 ★★★
+        // 适配 OkHttp 3/4 参数顺序
         RequestBody body = RequestBody.create(
                 MediaType.parse("application/json; charset=utf-8"),
                 jsonBody.toString()
