@@ -1,4 +1,3 @@
-
 package com.skythinker.gptassistant;
 
 import android.Manifest;
@@ -117,7 +116,7 @@ public class MainActivity extends Activity {
     private static boolean isAlive = false;
     private static boolean isRunning = false;
 
-    // ★★★ 网络层替换：使用 OkHttp 替代 ChatApiClient ★★★
+    // ★★★ 移除 ChatApiClient，使用 OkHttp 替代 ★★★
     private OkHttpClient okHttpClient;
     private Call currentCall;
     private String chatApiBuffer = "";
@@ -125,18 +124,17 @@ public class MainActivity extends Activity {
     // ★★★ TTS 替换：使用 TtsManager 替代 TextToSpeech ★★★
     private TtsManager ttsManager;
     private boolean ttsEnabled = true;
-    // 保留原有的断句逻辑，适配 TtsManager
     final private List<String> ttsSentenceSeparator = Arrays.asList("。", ".", "？", "?", "！", "!", "……", "\n", "：", ":");
     private int ttsSentenceEndIndex = 0;
 
     private boolean multiChat = false;
     ChatManager chatManager = null;
-    private Conversation currentConversation = null; // 当前会话信息
-    private MessageList multiChatList = null; // 指向currentConversation.messages
+    private Conversation currentConversation = null; 
+    private MessageList multiChatList = null; 
 
     private boolean multiVoice = false;
 
-    private JSONObject currentTemplateParams = null; // 当前模板参数
+    private JSONObject currentTemplateParams = null; 
 
     AsrClientBase asrClient = null;
     AsrClientBase.IAsrCallback asrCallback = null;
@@ -145,7 +143,7 @@ public class MainActivity extends Activity {
 
     Uri photoUri = null;
 
-    ArrayList<ChatMessage.Attachment> selectedAttachments = new ArrayList<>(); // 选中的附件列表
+    ArrayList<ChatMessage.Attachment> selectedAttachments = new ArrayList<>(); 
 
     DocumentParser documentParser = null;
 
@@ -154,7 +152,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() { // 全局异常捕获
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() { 
             @Override
             public void uncaughtException(@NonNull Thread thread, @NonNull Throwable throwable) {
                 Log.e("UncaughtException", thread.getClass().getName() + " " + throwable.getMessage());
@@ -163,11 +161,10 @@ public class MainActivity extends Activity {
             }
         });
 
-        handler = new Handler(Looper.getMainLooper()); // 初始化Handler
+        handler = new Handler(Looper.getMainLooper()); 
 
-        GlobalDataHolder.init(this); // 初始化全局共享数据
+        GlobalDataHolder.init(this); 
 
-        // 初始化Markdown渲染器
         markdownRenderer = new MarkdownRenderer(this);
 
         // ★★★ 初始化新的 TTS 管理器 ★★★
@@ -176,13 +173,13 @@ public class MainActivity extends Activity {
         // ★★★ 初始化 OkHttp ★★★
         okHttpClient = new OkHttpClient.Builder()
                 .connectTimeout(60, TimeUnit.SECONDS)
-                .readTimeout(120, TimeUnit.SECONDS) // 增加超时时间以适应 DeepSeek
+                .readTimeout(120, TimeUnit.SECONDS) 
                 .writeTimeout(60, TimeUnit.SECONDS)
                 .build();
 
-        setContentView(R.layout.activity_main); // 设置主界面布局
-        overridePendingTransition(R.anim.translate_up_in, R.anim.translate_down_out); // 设置进入动画
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS); // 设置沉浸式状态栏
+        setContentView(R.layout.activity_main); 
+        overridePendingTransition(R.anim.translate_up_in, R.anim.translate_down_out); 
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS); 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
 
@@ -195,12 +192,12 @@ public class MainActivity extends Activity {
         svChatArea = findViewById(R.id.sv_chat_list);
         llChatList = findViewById(R.id.ll_chat_list);
 
-        documentParser = new DocumentParser(this); // 初始化文档解析器
-        handleShareIntent(getIntent()); // 处理分享的文本/图片
+        documentParser = new DocumentParser(this); 
+        handleShareIntent(getIntent()); 
 
-        updateForMultiWindowMode(); // 根据当前窗口模式控制UI是否占满屏幕
+        updateForMultiWindowMode(); 
 
-        findViewById(R.id.ll_main).setOnDragListener((v, event) -> { // 处理拖拽事件（跨应用拖拽）
+        findViewById(R.id.ll_main).setOnDragListener((v, event) -> { 
             if(event.getAction() == DragEvent.ACTION_DROP) {
                 requestDragAndDropPermissions(event);
                 ClipData clipData = event.getClipData();
@@ -208,9 +205,9 @@ public class MainActivity extends Activity {
                     for (int i = 0; i < clipData.getItemCount(); i++) {
                         ClipData.Item item = clipData.getItemAt(i);
                         Uri uri = item.getUri();
-                        if (uri != null) { // 文件、图片作为附件处理
+                        if (uri != null) { 
                             addAttachment(uri);
-                        } else { // 纯文本直接添加到输入框
+                        } else { 
                             if(item.getText() != null) {
                                 String text = item.getText().toString();
                                 String inputText = etUserInput.getText().toString();
@@ -227,20 +224,18 @@ public class MainActivity extends Activity {
             return true;
         });
 
-        chatManager = new ChatManager(this); // 初始化聊天记录管理器
-        ChatMessage.setContext(this); // 设置聊天消息的上下文（用于读写文件）
+        chatManager = new ChatManager(this); 
+        ChatMessage.setContext(this); 
 
-        webScraper = new WebScraper(this, findViewById(R.id.ll_main_base)); // 初始化网页抓取器
+        webScraper = new WebScraper(this, findViewById(R.id.ll_main_base)); 
 
         // ★★★ 核心修改：初始化输入监听和动态按钮 ★★★
         setupInputListener();
 
         // 附件选择按钮点击事件
         btAttachment.setOnClickListener(view -> {
-            // 弹出附件选择菜单
             PopupWindow popupWindow = getAttachmentPopupWindow();
             popupWindow.showAtLocation(btAttachment, Gravity.BOTTOM | Gravity.START, dpToPx(3), dpToPx(43));
-            // 设置背景透明度
             View container = popupWindow.getContentView().getRootView();
             Context context = popupWindow.getContentView().getContext();
             WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
@@ -250,7 +245,7 @@ public class MainActivity extends Activity {
             wm.updateViewLayout(container, params);
         });
 
-        // 长按输入框开始录音或清空内容 (保留原逻辑)
+        // 长按输入框开始录音或清空内容
         etUserInput.setOnLongClickListener(view -> {
             if(etUserInput.getText().toString().equals("")) {
                 Intent broadcastIntent = new Intent("com.skythinker.gptassistant.KEY_SPEECH_START");
@@ -273,7 +268,7 @@ public class MainActivity extends Activity {
             return false;
         });
 
-        // 连续对话按钮点击事件（切换连续对话开关状态）
+        // 连续对话按钮点击事件
         (findViewById(R.id.cv_multi_chat)).setOnClickListener(view -> {
             multiChat = !multiChat;
             if(multiChat){
@@ -291,7 +286,7 @@ public class MainActivity extends Activity {
 
             if(currentConversation != null &&
                     ((multiChatList.size() > 0 && multiChatList.get(0).role != ChatRole.SYSTEM) || (multiChatList.size() > 1 && multiChatList.get(0).role == ChatRole.SYSTEM)) &&
-                    GlobalDataHolder.getAutoSaveHistory()) // 包含有效对话则保存当前对话
+                    GlobalDataHolder.getAutoSaveHistory()) 
                 chatManager.addConversation(currentConversation);
 
             currentConversation = new Conversation();
@@ -302,9 +297,9 @@ public class MainActivity extends Activity {
         pwMenu = new PopupWindow(menuView, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         pwMenu.setOutsideTouchable(true);
 
-        (findViewById(R.id.cv_new_chat)).performClick(); // 初始化对话列表
+        (findViewById(R.id.cv_new_chat)).performClick(); 
 
-        // TTS开关按钮点击事件（切换TTS开关状态）
+        // TTS开关按钮点击事件
         (findViewById(R.id.cv_tts_off)).setOnClickListener(view -> {
             ttsEnabled = !ttsEnabled;
             if(ttsEnabled) {
@@ -317,9 +312,9 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 连续语音对话按钮点击事件（切换连续语音对话开关状态）
+        // 连续语音对话按钮点击事件
         (findViewById(R.id.cv_voice_chat)).setOnClickListener(view -> {
-            if(!multiVoice && !ttsEnabled) { // 未开启TTS时不允许开启连续语音对话
+            if(!multiVoice && !ttsEnabled) { 
                 GlobalUtils.showToast(this, R.string.toast_voice_chat_tts_off, false);
                 return;
             }
@@ -339,30 +334,30 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 历史按钮点击事件，跳转到历史记录页面
+        // 历史按钮点击事件
         (menuView.findViewById(R.id.cv_history)).setOnClickListener(view -> {
             pwMenu.dismiss();
             Intent intent = new Intent(MainActivity.this, HistoryActivity.class);
             startActivityForResult(intent, 3);
         });
 
-        // 设置按钮点击事件，跳转到设置页面
+        // 设置按钮点击事件
         (menuView.findViewById(R.id.cv_settings)).setOnClickListener(view -> {
             pwMenu.dismiss();
             startActivityForResult(new Intent(MainActivity.this, TabConfActivity.class), 0);
         });
 
-        // 关闭按钮点击事件，退出程序
+        // 关闭按钮点击事件
         (menuView.findViewById(R.id.cv_close)).setOnClickListener(view -> {
             finish();
         });
 
-        // 更多按钮点击事件，显示更多菜单
+        // 更多按钮点击事件
         (findViewById(R.id.cv_more)).setOnClickListener(view -> {
             pwMenu.showAsDropDown(view, 0, 0);
         });
 
-        // 上方空白区域点击事件，退出程序
+        // 上方空白区域点击事件
         (findViewById(R.id.view_bg_empty)).setOnClickListener(view -> {
             finish();
         });
@@ -383,14 +378,14 @@ public class MainActivity extends Activity {
         if(GlobalDataHolder.getSelectedTab() != -1 && GlobalDataHolder.getSelectedTab() < GlobalDataHolder.getTabDataList().size())
             selectedTab = GlobalDataHolder.getSelectedTab();
         switchToTemplate(selectedTab);
-        Button selectedTabBtn = (Button) ((LinearLayout) findViewById(R.id.tabs_layout)).getChildAt(selectedTab); // 将选中的模板按钮滚动到可见位置
+        Button selectedTabBtn = (Button) ((LinearLayout) findViewById(R.id.tabs_layout)).getChildAt(selectedTab); 
         selectedTabBtn.getParent().requestChildFocus(selectedTabBtn, selectedTabBtn);
 
-        updateModelSpinner(); // 设置模型选择下拉框
+        updateModelSpinner(); 
 
-        isAlive = true; // 标记当前Activity已启动
+        isAlive = true; 
 
-        requestPermission(); // 申请动态权限
+        requestPermission(); 
 
         // 初始化语音识别回调
         asrCallback = new AsrClientBase.IAsrCallback() {
@@ -439,22 +434,22 @@ public class MainActivity extends Activity {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String action = intent.getAction();
-                if(action.equals("com.skythinker.gptassistant.KEY_SPEECH_START")) { // 开始语音识别
+                if(action.equals("com.skythinker.gptassistant.KEY_SPEECH_START")) { 
                     ttsManager.stop();
                     asrClient.startRecognize();
                     asrStartTime = System.currentTimeMillis();
                     etUserInput.setText("");
                     etUserInput.setHint(R.string.text_listening_hint);
-                } else if(action.equals("com.skythinker.gptassistant.KEY_SPEECH_STOP")) { // 停止语音识别
+                } else if(action.equals("com.skythinker.gptassistant.KEY_SPEECH_STOP")) { 
                     etUserInput.setHint(R.string.text_input_hint);
                     if(System.currentTimeMillis() - asrStartTime < 1000) {
                         asrClient.cancelRecognize();
                     } else {
                         asrClient.stopRecognize();
                     }
-                } else if(action.equals("com.skythinker.gptassistant.KEY_SEND")) { // 发送问题
+                } else if(action.equals("com.skythinker.gptassistant.KEY_SEND")) { 
                     sendQuestion(null);
-                } else if(action.equals("com.skythinker.gptassistant.SHOW_KEYBOARD")) { // 弹出软键盘
+                } else if(action.equals("com.skythinker.gptassistant.SHOW_KEYBOARD")) { 
                     etUserInput.requestFocus();
                     InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
                     imm.showSoftInput(findViewById(R.id.et_user_input), InputMethodManager.RESULT_UNCHANGED_SHOWN);
@@ -470,7 +465,7 @@ public class MainActivity extends Activity {
 
         // 检查无障碍权限
         if(GlobalDataHolder.getCheckAccessOnStart()) {
-            if(!MyAccessbilityService.isConnected()) { // 没有权限则弹窗提醒用户开启
+            if(!MyAccessbilityService.isConnected()) { 
                 new ConfirmDialog(this)
                     .setContent(getString(R.string.text_access_notice))
                     .setOnConfirmListener(() -> {
@@ -492,7 +487,6 @@ public class MainActivity extends Activity {
 
     // ★★★ 新增：设置输入框监听和按钮模式切换 ★★★
     private void setupInputListener() {
-        // 初始状态：默认为语音模式
         switchToVoiceMode();
 
         etUserInput.addTextChangedListener(new TextWatcher() {
@@ -513,16 +507,15 @@ public class MainActivity extends Activity {
         });
     }
 
-    // ★★★ 切换到发送模式（箭头图标） ★★★
+    // ★★★ 切换到发送模式 ★★★
     private void switchToSendMode() {
         if (btSend.getTag() != null && btSend.getTag().equals("SEND")) return;
 
-        btSend.setImageResource(R.drawable.ic_send_round); // 确保你有这个资源文件
+        btSend.setImageResource(R.drawable.ic_send_round); 
         btSend.setTag("SEND");
 
         btSend.setOnClickListener(view -> {
             if(webScraper.isLoading() || (currentCall != null && !currentCall.isCanceled())){
-                // 如果正在加载网页或正在请求API，点击则取消
                 if (webScraper.isLoading()) webScraper.stopLoading();
                 if (currentCall != null) currentCall.cancel();
                 
@@ -535,23 +528,21 @@ public class MainActivity extends Activity {
                 etUserInput.setText("");
             }
         });
-        btSend.setOnLongClickListener(null); // 发送模式下长按无效
+        btSend.setOnLongClickListener(null); 
     }
 
-    // ★★★ 切换到语音模式（麦克风图标） ★★★
+    // ★★★ 切换到语音模式 ★★★
     private void switchToVoiceMode() {
         if (btSend.getTag() != null && btSend.getTag().equals("VOICE")) return;
 
-        btSend.setImageResource(R.drawable.ic_mic_round); // 确保你有这个资源文件
+        btSend.setImageResource(R.drawable.ic_mic_round); 
         btSend.setTag("VOICE");
 
-        // 点击：开始语音识别
         btSend.setOnClickListener(view -> {
             Intent broadcastIntent = new Intent("com.skythinker.gptassistant.KEY_SPEECH_START");
             LocalBroadcastManager.getInstance(this).sendBroadcast(broadcastIntent);
         });
 
-        // 长按：选择语言
         btSend.setOnLongClickListener(view -> {
             showLanguageSelectionDialog();
             return true;
@@ -597,7 +588,6 @@ public class MainActivity extends Activity {
         grid.addView(tv);
     }
 
-    // 设置当前使用的语音识别接口
     private void setAsrClient(String type) {
         if(asrClient != null) {
             asrClient.destroy();
@@ -617,7 +607,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 设置是否允许GPT联网 (保留空方法以兼容旧代码调用，实际逻辑在 sendQuestion 中)
     private void setNetworkEnabled(boolean enabled) {
         // 逻辑已移至 sendQuestion 的 tools 构建中
     }
@@ -625,24 +614,22 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if(requestCode == 0) { // 从设置界面返回
-            int tabNum = GlobalDataHolder.getTabDataList().size(); // 更新模板列表
+        if(requestCode == 0) { 
+            int tabNum = GlobalDataHolder.getTabDataList().size(); 
             if(selectedTab >= tabNum)
                 selectedTab = tabNum - 1;
             switchToTemplate(selectedTab);
 
-            updateModelSpinner(); // 更新模型下拉选框
+            updateModelSpinner(); 
 
-            // 更新Whisper接口的API信息
             if(asrClient instanceof WhisperAsrClient) {
                 ((WhisperAsrClient) asrClient).setApiInfo(GlobalDataHolder.getGptApiHost(), GlobalDataHolder.getGptApiKey());
             }
             
-            // 联网设置在 sendQuestion 中动态获取
-        } else if((requestCode == 1 || requestCode == 2) && resultCode == RESULT_OK) { // 从相册或相机返回
-            Uri uri = requestCode == 1 ? photoUri : data.getData(); // 获取图片URI
+        } else if((requestCode == 1 || requestCode == 2) && resultCode == RESULT_OK) { 
+            Uri uri = requestCode == 1 ? photoUri : data.getData(); 
             addAttachment(uri);
-        } else if(requestCode == 3 && resultCode == RESULT_OK) { // 从聊天历史界面返回
+        } else if(requestCode == 3 && resultCode == RESULT_OK) { 
             if(data.hasExtra("id")) {
                 long id = data.getLongExtra("id", -1);
                 Log.d("MainActivity", "onActivityResult 3: id=" + id);
@@ -651,15 +638,15 @@ public class MainActivity extends Activity {
                 conversation.updateTime();
                 reloadConversation(conversation);
             }
-        } else if(requestCode == 4 && resultCode == RESULT_OK) { // 选择文件
+        } else if(requestCode == 4 && resultCode == RESULT_OK) { 
             try {
                 ArrayList<Uri> uris = new ArrayList<>();
                 ClipData clipData = data.getClipData();
-                if(clipData != null) { // 多选文件
+                if(clipData != null) { 
                     for (int i = 0; i < clipData.getItemCount(); i++) {
                         uris.add(clipData.getItemAt(i).getUri());
                     }
-                } else { // 单选文件
+                } else { 
                     Uri uri = data.getData();
                     if(uri != null)
                         uris.add(uri);
@@ -673,7 +660,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 滚动聊天列表到底部
     private void scrollChatAreaToBottom() {
         svChatArea.post(() -> {
             int delta = svChatArea.getChildAt(0).getBottom()
@@ -683,14 +669,13 @@ public class MainActivity extends Activity {
         });
     }
 
-    // 更新模型下拉选框
     private void updateModelSpinner() {
         Spinner spModels = findViewById(R.id.sp_main_model);
-        List<String> models = new ArrayList<>(Arrays.asList(getResources().getStringArray(R.array.models))); // 获取内置模型列表
-        models.addAll(GlobalDataHolder.getCustomModels()); // 添加自定义模型到列表
-        ArrayAdapter<String> modelsAdapter = new ArrayAdapter<String>(this, R.layout.main_model_spinner_item, models) { // 设置Spinner样式和列表数据
+        List<String> models = new ArrayList<>(Arrays.asList(getResources().getStringArray(R.array.models))); 
+        models.addAll(GlobalDataHolder.getCustomModels()); 
+        ArrayAdapter<String> modelsAdapter = new ArrayAdapter<String>(this, R.layout.main_model_spinner_item, models) { 
             @Override
-            public View getDropDownView(int position, @Nullable View convertView, @NonNull ViewGroup parent) { // 设置选中/未选中的选项样式
+            public View getDropDownView(int position, @Nullable View convertView, @NonNull ViewGroup parent) { 
                 TextView tv = (TextView) super.getDropDownView(position, convertView, parent);
                 if(spModels.getSelectedItemPosition() == position) {
                     tv.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -700,32 +685,31 @@ public class MainActivity extends Activity {
                 return tv;
             }
         };
-        modelsAdapter.setDropDownViewResource(R.layout.model_spinner_dropdown_item); // 设置下拉选项样式
+        modelsAdapter.setDropDownViewResource(R.layout.model_spinner_dropdown_item); 
         spModels.setAdapter(modelsAdapter);
-        spModels.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() { // 设置选项点击事件
+        spModels.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() { 
             public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
                 GlobalDataHolder.saveGptApiInfo(GlobalDataHolder.getGptApiHost(), GlobalDataHolder.getGptApiKey(), adapterView.getItemAtPosition(i).toString(), GlobalDataHolder.getCustomModels());
                 modelsAdapter.notifyDataSetChanged();
             }
             public void onNothingSelected(AdapterView<?> adapterView) { }
         });
-        for(int i = 0; i < modelsAdapter.getCount(); i++) { // 查找当前选中的选项
+        for(int i = 0; i < modelsAdapter.getCount(); i++) { 
             if(modelsAdapter.getItem(i).equals(GlobalDataHolder.getGptModel())) {
                 spModels.setSelection(i);
                 break;
             }
-            if(i == modelsAdapter.getCount() - 1) { // 没有找到选中的选项，默认选中第一个
+            if(i == modelsAdapter.getCount() - 1) { 
                 spModels.setSelection(0);
             }
         }
     }
 
-    // 更新模板列表布局
     private void updateTabListView() {
         LinearLayout tabList = findViewById(R.id.tabs_layout);
         tabList.removeAllViews();
-        List<PromptTabData> tabDataList = GlobalDataHolder.getTabDataList(); // 获取模板列表数据
-        for (int i = 0; i < tabDataList.size(); i++) { // 依次创建按钮并添加到父布局
+        List<PromptTabData> tabDataList = GlobalDataHolder.getTabDataList(); 
+        for (int i = 0; i < tabDataList.size(); i++) { 
             PromptTabData tabData = tabDataList.get(i);
             Button tabBtn = new Button(this);
             tabBtn.setText(tabData.getTitle());
@@ -741,7 +725,7 @@ public class MainActivity extends Activity {
             params.setMargins(0, 0, 20, 0);
             tabBtn.setLayoutParams(params);
             int finalI = i;
-            tabBtn.setOnClickListener(view -> { // 按钮点击时选中对应的模板
+            tabBtn.setOnClickListener(view -> { 
                 if(finalI != selectedTab) {
                     switchToTemplate(finalI);
                     if(multiChatList.size() > 0)
@@ -752,17 +736,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 更新模板参数控件
     private void updateTemplateParamsView() {
         LinearLayout llParams = findViewById(R.id.ll_template_params);
         llParams.removeAllViews();
         if(currentTemplateParams.containsKey("input")) {
             for (String inputKey : currentTemplateParams.getJSONObject("input").keySet()) {
-                LinearLayout llOuter = new LinearLayout(this); // 外层布局，包含参数名和参数控件
+                LinearLayout llOuter = new LinearLayout(this); 
                 llOuter.setOrientation(LinearLayout.HORIZONTAL);
                 llOuter.setGravity(Gravity.CENTER);
                 llOuter.setPadding(dpToPx(10), dpToPx(10), dpToPx(10), dpToPx(10));
-                TextView tv = new TextView(this); // 参数名
+                TextView tv = new TextView(this); 
                 tv.setText(inputKey);
                 tv.setTextColor(Color.BLACK);
                 tv.setTextSize(16);
@@ -770,7 +753,7 @@ public class MainActivity extends Activity {
                 tv.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0));
                 llOuter.addView(tv);
                 JSONObject inputItem = currentTemplateParams.getJSONObject("input").getJSONObject(inputKey);
-                if(inputItem.getStr("type").equals("text")) { // 输入型参数控件
+                if(inputItem.getStr("type").equals("text")) { 
                     EditText et = new EditText(this);
                     et.setBackgroundColor(Color.TRANSPARENT);
                     et.setTextSize(16);
@@ -782,7 +765,7 @@ public class MainActivity extends Activity {
                     et.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
                     et.setPadding(0, 0, 0, 0);
                     llOuter.addView(et);
-                } else if(inputItem.getStr("type").equals("select")) { // 下拉选择型参数控件
+                } else if(inputItem.getStr("type").equals("select")) { 
                     Spinner sp = new Spinner(this, Spinner.MODE_DROPDOWN);
                     sp.setBackgroundColor(Color.TRANSPARENT);
                     sp.setPadding(0, 0, 0, 0);
@@ -797,9 +780,9 @@ public class MainActivity extends Activity {
                         @Override
                         public View getDropDownView(int position, View convertView, ViewGroup parent) {
                             TextView tv = (TextView) super.getDropDownView(position, convertView, parent);
-                            if(sp.getSelectedItemPosition() == position) { // 选中项
+                            if(sp.getSelectedItemPosition() == position) { 
                                 tv.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-                            } else { // 未选中项
+                            } else { 
                                 tv.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
                             }
                             return tv;
@@ -814,14 +797,13 @@ public class MainActivity extends Activity {
             }
         }
 
-        if(llParams.getChildCount() == 0) { // 没有参数，隐藏参数布局
+        if(llParams.getChildCount() == 0) { 
             ((CardView) llParams.getParent()).setVisibility(View.GONE);
         } else {
             ((CardView) llParams.getParent()).setVisibility(View.VISIBLE);
         }
     }
 
-    // 从界面上获取模板参数
     private JSONObject getTemplateParamsFromView() {
         JSONObject params = new JSONObject();
         LinearLayout llParams = findViewById(R.id.ll_template_params);
@@ -839,7 +821,6 @@ public class MainActivity extends Activity {
         return params;
     }
 
-    // 切换到指定的模板
     private void switchToTemplate(int tabIndex) {
         selectedTab = tabIndex;
         if(GlobalDataHolder.getSelectedTab() != -1) {
@@ -852,34 +833,33 @@ public class MainActivity extends Activity {
         updateTemplateParamsView();
     }
 
-    // 添加一条聊天记录到聊天列表布局
     private LinearLayout addChatView(ChatRole role, String content, ArrayList<ChatMessage.Attachment> attachments) {
-        ViewGroup.MarginLayoutParams iconParams = new ViewGroup.MarginLayoutParams(dpToPx(30), dpToPx(30)); // 头像布局参数
+        ViewGroup.MarginLayoutParams iconParams = new ViewGroup.MarginLayoutParams(dpToPx(30), dpToPx(30)); 
         iconParams.setMargins(dpToPx(4), dpToPx(12), dpToPx(4), dpToPx(12));
 
-        ViewGroup.MarginLayoutParams contentParams = new ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); // 内容布局参数
+        ViewGroup.MarginLayoutParams contentParams = new ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); 
         contentParams.setMargins(dpToPx(4), dpToPx(15), dpToPx(4), dpToPx(15));
 
-        LinearLayout.LayoutParams popupIconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)); // 弹出的操作按钮布局参数
+        LinearLayout.LayoutParams popupIconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)); 
         popupIconParams.setMargins(dpToPx(5), dpToPx(5), dpToPx(5), dpToPx(5));
 
-        LinearLayout llOuter = new LinearLayout(this); // 包围整条聊天记录的最外层布局
+        LinearLayout llOuter = new LinearLayout(this); 
         llOuter.setOrientation(LinearLayout.HORIZONTAL);
-        if(role == ChatRole.ASSISTANT) // 不同角色使用不同背景颜色
+        if(role == ChatRole.ASSISTANT) 
             llOuter.setBackgroundColor(Color.parseColor("#0A000000"));
 
-        ImageView ivIcon = new ImageView(this); // 设置头像
+        ImageView ivIcon = new ImageView(this); 
         if(role == ChatRole.USER)
             ivIcon.setImageResource(R.drawable.chat_user_icon);
         else
             ivIcon.setImageResource(R.drawable.chat_gpt_icon);
         ivIcon.setLayoutParams(iconParams);
 
-        TextView tvContent = new TextView(this); // 设置内容
+        TextView tvContent = new TextView(this); 
         if(role == ChatRole.USER) {
             SpannableStringBuilder stringBuilder = new SpannableStringBuilder();
             stringBuilder.append(content);
-            if (attachments != null) { // 如有图片则在末尾添加ImageSpan
+            if (attachments != null) { 
                 boolean hasImageAttachment = false;
                 for(ChatMessage.Attachment attachment : attachments) {
                     if(attachment.type == ChatMessage.Attachment.Type.IMAGE) {
@@ -940,109 +920,109 @@ public class MainActivity extends Activity {
         tvContent.setTextIsSelectable(true);
         tvContent.setMovementMethod(LinkMovementMethod.getInstance());
 
-        LinearLayout llPopup = new LinearLayout(this); // 弹出按钮列表布局
+        LinearLayout llPopup = new LinearLayout(this); 
         llPopup.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         PaintDrawable popupBackground = new PaintDrawable(Color.TRANSPARENT);
         llPopup.setBackground(popupBackground);
         llPopup.setOrientation(LinearLayout.HORIZONTAL);
 
-        PopupWindow popupWindow = new PopupWindow(llPopup, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true); // 弹出窗口
+        PopupWindow popupWindow = new PopupWindow(llPopup, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true); 
         popupWindow.setOutsideTouchable(true);
-        ivIcon.setTag(popupWindow); // 将弹出窗口绑定到头像上
+        ivIcon.setTag(popupWindow); 
 
-        CardView cvDelete = new CardView(this); // 删除单条对话按钮
+        CardView cvDelete = new CardView(this); 
         cvDelete.setForeground(getDrawable(R.drawable.clear_btn));
         cvDelete.setOnClickListener(view -> {
             popupWindow.dismiss();
-            ChatMessage chat = (ChatMessage) llOuter.getTag(); // 获取布局上绑定的聊天记录数据
+            ChatMessage chat = (ChatMessage) llOuter.getTag(); 
             if(chat != null) {
                 int index = multiChatList.indexOf(chat);
                 multiChatList.remove(chat);
                 while(--index > 0 && (multiChatList.get(index).role == ChatRole.FUNCTION
-                        || (multiChatList.get(index).role == ChatRole.ASSISTANT && multiChatList.get(index).toolCalls.size() > 0))) // 将上方ToolCall也删除
+                        || (multiChatList.get(index).role == ChatRole.ASSISTANT && multiChatList.get(index).toolCalls.size() > 0))) 
                     multiChatList.remove(index);
             }
-            if(tvContent == tvGptReply) { // 删除的是GPT正在回复的消息框，停止回复和TTS
+            if(tvContent == tvGptReply) { 
                 if(currentCall != null) currentCall.cancel();
                 ttsManager.stop();
             }
             llChatList.removeView(llOuter);
-            if(llChatList.getChildCount() == 0) // 如果删除后聊天列表为空，则添加占位TextView
+            if(llChatList.getChildCount() == 0) 
                 clearChatListView();
         });
         llPopup.addView(cvDelete);
 
-        CardView cvDelBelow = new CardView(this); // 删除下方所有对话按钮
+        CardView cvDelBelow = new CardView(this); 
         cvDelBelow.setForeground(getDrawable(R.drawable.del_below_btn));
         cvDelBelow.setOnClickListener(view -> {
             popupWindow.dismiss();
             int index = llChatList.indexOfChild(llOuter);
-            while(llChatList.getChildCount() > index && llChatList.getChildAt(0) instanceof LinearLayout) { // 模拟点击各条记录的删除按钮
+            while(llChatList.getChildCount() > index && llChatList.getChildAt(0) instanceof LinearLayout) { 
                 PopupWindow pw = (PopupWindow) ((LinearLayout) llChatList.getChildAt(llChatList.getChildCount() - 1)).getChildAt(0).getTag();
                 ((LinearLayout) pw.getContentView()).getChildAt(0).performClick();
             }
         });
         llPopup.addView(cvDelBelow);
 
-        if(role == ChatRole.USER) { // USER角色才有的按钮
-            CardView cvEdit = new CardView(this); // 编辑按钮
+        if(role == ChatRole.USER) { 
+            CardView cvEdit = new CardView(this); 
             cvEdit.setForeground(getDrawable(R.drawable.edit_btn));
             cvEdit.setOnClickListener(view -> {
                 popupWindow.dismiss();
-                ChatMessage chat = (ChatMessage) llOuter.getTag(); // 获取布局上绑定的聊天记录数据
+                ChatMessage chat = (ChatMessage) llOuter.getTag(); 
                 String text = chat.contentText;
-                if(chat.attachments.size() > 0) { // 若含有附件则设置为选中的附件
+                if(chat.attachments.size() > 0) { 
                     selectedAttachments.clear();
-                    selectedAttachments.addAll(chat.attachments); // 注意这是浅拷贝
+                    selectedAttachments.addAll(chat.attachments); 
                 } else {
                     selectedAttachments.clear();
                 }
-                updateAttachmentButton(); // 更新附件按钮状态
-                etUserInput.setText(text); // 添加文本内容到输入框
-                cvDelBelow.performClick(); // 删除下方所有对话
+                updateAttachmentButton(); 
+                etUserInput.setText(text); 
+                cvDelBelow.performClick(); 
             });
             llPopup.addView(cvEdit);
 
-            CardView cvRetry = new CardView(this); // 重试按钮
+            CardView cvRetry = new CardView(this); 
             cvRetry.setForeground(getDrawable(R.drawable.retry_btn));
             cvRetry.setOnClickListener(view -> {
                 popupWindow.dismiss();
-                ChatMessage chat = (ChatMessage) llOuter.getTag(); // 获取布局上绑定的聊天记录数据
+                ChatMessage chat = (ChatMessage) llOuter.getTag(); 
                 String text = chat.contentText;
-                if(chat.attachments.size() > 0) { // 若含有附件则设置为选中的附件
+                if(chat.attachments.size() > 0) { 
                     selectedAttachments.clear();
-                    selectedAttachments.addAll(chat.attachments); // 注意这是浅拷贝
+                    selectedAttachments.addAll(chat.attachments); 
                 } else {
                     selectedAttachments.clear();
                 }
-                cvDelBelow.performClick(); // 删除下方所有对话
-                sendQuestion(text); // 重新发送问题
+                cvDelBelow.performClick(); 
+                sendQuestion(text); 
             });
             llPopup.addView(cvRetry);
         }
 
-        CardView cvCopy = new CardView(this); // 复制按钮
+        CardView cvCopy = new CardView(this); 
         cvCopy.setForeground(getDrawable(R.drawable.copy_btn));
-        cvCopy.setOnClickListener(view -> { // 复制文本内容到剪贴板
+        cvCopy.setOnClickListener(view -> { 
             popupWindow.dismiss();
-            ChatMessage chat = (ChatMessage) llOuter.getTag(); // 获取布局上绑定的聊天记录数据
+            ChatMessage chat = (ChatMessage) llOuter.getTag(); 
             if(chat == null || chat.role != ChatRole.USER) {
-                GlobalUtils.copyToClipboard(this, tvContent.getText().toString()); // 如果是助手回复则复制渲染后的内容
+                GlobalUtils.copyToClipboard(this, tvContent.getText().toString()); 
             } else {
-                GlobalUtils.copyToClipboard(this, chat.contentText); // 如果是用户提问则复制原始提问内容
+                GlobalUtils.copyToClipboard(this, chat.contentText); 
             }
             Toast.makeText(this, R.string.toast_clipboard, Toast.LENGTH_SHORT).show();
         });
         llPopup.addView(cvCopy);
 
-        for(int i = 0; i < llPopup.getChildCount(); i++) { // 设置弹出按钮的样式
+        for(int i = 0; i < llPopup.getChildCount(); i++) { 
             CardView cvBtn = (CardView) llPopup.getChildAt(i);
             cvBtn.setLayoutParams(popupIconParams);
             cvBtn.setCardBackgroundColor(Color.WHITE);
             cvBtn.setRadius(dpToPx(5));
         }
 
-        ivIcon.setOnClickListener(view -> { // 点击头像时弹出操作按钮
+        ivIcon.setOnClickListener(view -> { 
             popupWindow.showAsDropDown(view, dpToPx(30), -dpToPx(35));
         });
 
@@ -1058,13 +1038,12 @@ public class MainActivity extends Activity {
     private void sendQuestion(String input){
         boolean isMultiChat = currentTemplateParams.getBool("chat", multiChat);
 
-        if(!isMultiChat) { // 若为单次对话模式则新建一个聊天
+        if(!isMultiChat) { 
             ((CardView) findViewById(R.id.cv_new_chat)).performClick();
         }
 
-        // 处理提问文本内容
         String userInput = (input == null) ? etUserInput.getText().toString() : input;
-        if(multiChatList.size() == 0 && input == null) { // 由用户输入触发的第一次对话需要添加模板内容
+        if(multiChatList.size() == 0 && input == null) { 
             PromptTabData tabData = GlobalDataHolder.getTabDataList().get(selectedTab);
             String template = tabData.getFormattedPrompt(getTemplateParamsFromView());
             if(currentTemplateParams.getBool("system", false)) {
@@ -1079,28 +1058,28 @@ public class MainActivity extends Activity {
             currentConversation.title = String.format("%s%s%s",
                     tabData.getTitle(),
                     (!tabData.getTitle().isEmpty() && !userInput.isEmpty()) ? " | " : "",
-                    userInput.substring(0, Math.min(100, userInput.length())).replaceAll("\n", " ")); // 保存对话标题
+                    userInput.substring(0, Math.min(100, userInput.length())).replaceAll("\n", " ")); 
         } else {
             multiChatList.add(new ChatMessage(ChatRole.USER).setText(userInput));
         }
 
-        if(selectedAttachments.size() > 0) { // 若有选中的文件则添加到聊天记录数据中
+        if(selectedAttachments.size() > 0) { 
             for (ChatMessage.Attachment attachment : selectedAttachments) {
                 multiChatList.get(multiChatList.size() - 1).addAttachment(attachment);
             }
         }
 
-        if(llChatList.getChildCount() > 0 && llChatList.getChildAt(0) instanceof TextView) { // 若有占位TextView则删除
+        if(llChatList.getChildCount() > 0 && llChatList.getChildAt(0) instanceof TextView) { 
             llChatList.removeViewAt(0);
         }
 
-        if(GlobalDataHolder.getOnlyLatestWebResult()) { // 若设置为仅保留最新网页数据，删除之前的所有网页数据
+        if(GlobalDataHolder.getOnlyLatestWebResult()) { 
             for (int i = 0; i < multiChatList.size(); i++) {
                 ChatMessage chatItem = multiChatList.get(i);
                 if (chatItem.role == ChatRole.FUNCTION) {
                     multiChatList.remove(i);
                     i--;
-                    if(i > 0 && multiChatList.get(i).role == ChatRole.ASSISTANT) { // 也要删除调用Function的Assistant记录
+                    if(i > 0 && multiChatList.get(i).role == ChatRole.ASSISTANT) { 
                         multiChatList.remove(i);
                         i--;
                     }
@@ -1108,11 +1087,10 @@ public class MainActivity extends Activity {
             }
         }
 
-        // 添加对话布局
         LinearLayout llInput = addChatView(ChatRole.USER, isMultiChat ? multiChatList.get(multiChatList.size() - 1).contentText : userInput, multiChatList.get(multiChatList.size() - 1).attachments);
         LinearLayout llReply = addChatView(ChatRole.ASSISTANT, getString(R.string.text_waiting_reply), null);
 
-        llInput.setTag(multiChatList.get(multiChatList.size() - 1)); // 将对话数据绑定到布局上
+        llInput.setTag(multiChatList.get(multiChatList.size() - 1)); 
 
         tvGptReply = (TextView) llReply.getChildAt(1);
 
@@ -1121,34 +1099,31 @@ public class MainActivity extends Activity {
         chatApiBuffer = "";
         ttsSentenceEndIndex = 0;
         
-        if (BuildConfig.DEBUG && userInput.startsWith("#markdowndebug\n")) { // Markdown渲染测试
+        if (BuildConfig.DEBUG && userInput.startsWith("#markdowndebug\n")) { 
             markdownRenderer.render(tvGptReply, userInput.replace("#markdowndebug\n", ""));
         } else {
-            // ★★★ DeepSeek/OpenAI 网络请求逻辑 ★★★
             String apiKey = GlobalDataHolder.getGptApiKey();
             if (apiKey == null || apiKey.isEmpty()) {
                 Toast.makeText(this, "请先在设置中配置 API Key", Toast.LENGTH_LONG).show();
                 return;
             }
 
-            // 构建请求体 (使用 Hutool 防止 NPE)
             JSONObject jsonBody = new JSONObject();
             jsonBody.set("model", GlobalDataHolder.getGptModel());
             jsonBody.set("stream", true);
             jsonBody.set("temperature", GlobalDataHolder.getGptTemperature());
             
-            // 转换历史记录
             JSONArray messages = new JSONArray();
             for (ChatMessage msg : multiChatList) {
                 JSONObject m = new JSONObject();
                 m.set("role", msg.role.toString().toLowerCase());
                 m.set("content", msg.contentText);
-                // 处理 ToolCall 历史
                 if (msg.role == ChatRole.ASSISTANT && msg.toolCalls.size() > 0) {
                     JSONArray toolCalls = new JSONArray();
                     for (ChatMessage.ToolCall tc : msg.toolCalls) {
                         JSONObject t = new JSONObject();
-                        t.set("id", tc.toolId);
+                        // ★★★ 修复：使用 id 而不是 toolId，因为 ToolCall 类可能没有 toolId 字段 ★★★
+                        t.set("id", tc.id); 
                         t.set("type", "function");
                         JSONObject func = new JSONObject();
                         func.set("name", tc.functionName);
@@ -1158,17 +1133,22 @@ public class MainActivity extends Activity {
                     }
                     m.set("tool_calls", toolCalls);
                 }
-                // 处理 Function 结果
                 if (msg.role == ChatRole.FUNCTION) {
                     m.set("role", "tool");
-                    m.set("tool_call_id", msg.toolCallId);
-                    m.set("name", msg.functionName); // OpenAI 格式可能不需要 name，但保留无妨
+                    // ★★★ 修复：从 toolCalls 列表中获取 ID，因为 ChatMessage 本身没有 toolCallId 字段 ★★★
+                    if (msg.toolCalls.size() > 0) {
+                        m.set("tool_call_id", msg.toolCalls.get(0).id);
+                        m.set("name", msg.toolCalls.get(0).functionName);
+                    } else {
+                        // Fallback if empty (should not happen for FUNCTION role)
+                        m.set("tool_call_id", "unknown");
+                        m.set("name", "unknown");
+                    }
                 }
                 messages.add(m);
             }
             jsonBody.set("messages", messages);
 
-            // 添加工具定义 (如果开启联网)
             if (currentTemplateParams.getBool("network", GlobalDataHolder.getEnableInternetAccess())) {
                 JSONArray tools = new JSONArray();
                 JSONObject tool = new JSONObject();
@@ -1197,7 +1177,6 @@ public class MainActivity extends Activity {
                     jsonBody.toString()
             );
 
-            // 适配自定义 Host
             String host = GlobalDataHolder.getGptApiHost();
             if (host.endsWith("/")) host = host.substring(0, host.length() - 1);
             String url = host + "/chat/completions";
@@ -1210,7 +1189,6 @@ public class MainActivity extends Activity {
 
             btSend.setImageResource(R.drawable.cancel_btn);
             
-            // 发起请求
             currentCall = okHttpClient.newCall(request);
             currentCall.enqueue(new Callback() {
                 private final StringBuilder functionArgsBuffer = new StringBuilder();
@@ -1250,7 +1228,6 @@ public class MainActivity extends Activity {
                                 if (choices != null && !choices.isEmpty()) {
                                     JSONObject delta = choices.getJSONObject(0).getJSONObject("delta");
                                     
-                                    // 处理内容
                                     if (delta != null && delta.containsKey("content")) {
                                         String content = delta.getStr("content");
                                         if (content != null) {
@@ -1263,7 +1240,6 @@ public class MainActivity extends Activity {
                                         }
                                     }
                                     
-                                    // 处理工具调用 (Function Calling)
                                     if (delta != null && delta.containsKey("tool_calls")) {
                                         JSONArray toolCalls = delta.getJSONArray("tool_calls");
                                         JSONObject toolCall = toolCalls.getJSONObject(0);
@@ -1271,7 +1247,7 @@ public class MainActivity extends Activity {
                                             currentToolId = toolCall.getStr("id");
                                             currentFunctionName = toolCall.getJSONObject("function").getStr("name");
                                             isFunctionCall = true;
-                                            functionArgsBuffer.setLength(0); // 重置缓冲区
+                                            functionArgsBuffer.setLength(0); 
                                         }
                                         if (toolCall.containsKey("function") && toolCall.getJSONObject("function").containsKey("arguments")) {
                                             functionArgsBuffer.append(toolCall.getJSONObject("function").getStr("arguments"));
@@ -1279,22 +1255,17 @@ public class MainActivity extends Activity {
                                     }
                                 }
                             } catch (Exception e) {
-                                // 忽略解析错误
                             }
                         }
                     }
 
-                    // 完成后处理
                     runOnUiThread(() -> {
                         if (isFunctionCall) {
-                            // 执行工具调用
                             handleFunctionCall(currentToolId, currentFunctionName, functionArgsBuffer.toString());
                         } else {
-                            // 正常结束
                             multiChatList.add(new ChatMessage(ChatRole.ASSISTANT).setText(chatApiBuffer));
                             ((LinearLayout) tvGptReply.getParent()).setTag(multiChatList.get(multiChatList.size() - 1));
                             
-                            // 朗读剩余部分
                             if (currentTemplateParams.getBool("speak", ttsEnabled) && chatApiBuffer.length() > ttsSentenceEndIndex) {
                                 ttsManager.speak(chatApiBuffer.substring(ttsSentenceEndIndex));
                             }
@@ -1306,15 +1277,13 @@ public class MainActivity extends Activity {
             });
 
             selectedAttachments.clear();
-            updateAttachmentButton(); // 更新附件按钮状态
+            updateAttachmentButton(); 
         }
     }
 
-    // 处理流式 TTS 断句
     private void handleTts(String fullText) {
         if (!currentTemplateParams.getBool("speak", ttsEnabled)) return;
         
-        // 过滤 <think> 标签
         if (fullText.startsWith("<think>\n") && !fullText.contains("\n</think>\n")) {
             ttsSentenceEndIndex = fullText.length();
             return;
@@ -1333,16 +1302,14 @@ public class MainActivity extends Activity {
             if (found) {
                 String sentence = fullText.substring(ttsSentenceEndIndex, nextSentenceEndIndex);
                 ttsSentenceEndIndex = nextSentenceEndIndex;
-                ttsManager.speak(sentence); // TtsManager 会自动处理队列或覆盖，这里简化为直接调用
+                ttsManager.speak(sentence); 
             }
         }
     }
 
-    // 处理工具调用逻辑
     private void handleFunctionCall(String toolId, String functionName, String arguments) {
         Log.d(TAG, "Function Call: " + functionName + " args: " + arguments);
         
-        // 保存 Assistant 的 ToolCall 消息
         ChatMessage assistantMsg = new ChatMessage(ChatRole.ASSISTANT);
         assistantMsg.addFunctionCall(toolId, functionName, arguments, null);
         multiChatList.add(assistantMsg);
@@ -1356,10 +1323,8 @@ public class MainActivity extends Activity {
                 webScraper.load(url, new WebScraper.Callback() {
                     @Override
                     public void onLoadResult(String result) {
-                        // 添加 Tool 结果消息
                         multiChatList.add(new ChatMessage(ChatRole.FUNCTION).addFunctionCall(toolId, functionName, arguments, result));
-                        // 递归调用，发送结果给 GPT
-                        sendQuestion(null); // input 为 null 表示继续当前对话
+                        sendQuestion(null); 
                     }
 
                     @Override
@@ -1383,18 +1348,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 获取附件弹窗
     private PopupWindow getAttachmentPopupWindow() {
-        LinearLayout.LayoutParams popupParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); // 删除按钮布局参数
+        LinearLayout.LayoutParams popupParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); 
         popupParams.setMargins(0, 0, 0, 0);
 
-        LinearLayout.LayoutParams deleteIconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)); // 删除按钮布局参数
+        LinearLayout.LayoutParams deleteIconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)); 
         deleteIconParams.setMargins(dpToPx(5), 0, dpToPx(5), 0);
 
-        LinearLayout.LayoutParams filenameCardParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(30)); // 文件名布局参数
+        LinearLayout.LayoutParams filenameCardParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dpToPx(30)); 
         filenameCardParams.setMargins(dpToPx(5), 0, dpToPx(5), 0);
 
-        LinearLayout.LayoutParams uploadIconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)); // 删除按钮布局参数
+        LinearLayout.LayoutParams uploadIconParams = new LinearLayout.LayoutParams(dpToPx(30), dpToPx(30)); 
         uploadIconParams.setMargins(dpToPx(5), 0, dpToPx(5), 0);
 
         LinearLayout llPopup = new LinearLayout(this);
@@ -1438,8 +1402,8 @@ public class MainActivity extends Activity {
 
                 cvFilename.addView(tvFilename);
 
-                cvFilename.setOnClickListener(view -> { // 点击文件名进行预览
-                    if (attachment.type == ChatMessage.Attachment.Type.IMAGE) { // 图片类型的附件
+                cvFilename.setOnClickListener(view -> { 
+                    if (attachment.type == ChatMessage.Attachment.Type.IMAGE) { 
                         Bitmap bitmap = base64ToBitmap(attachment.content);
                         AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
                         LayoutInflater inflater = LayoutInflater.from(MainActivity.this);
@@ -1452,7 +1416,7 @@ public class MainActivity extends Activity {
                         dialogView.findViewById(R.id.cv_image_preview_cancel).setOnClickListener(view1 -> dialog.dismiss());
                         dialogView.findViewById(R.id.cv_image_preview_del).setVisibility(View.GONE);
                         dialogView.findViewById(R.id.cv_image_preview_reselect).setVisibility(View.GONE);
-                    } else { // 文本类型的附件
+                    } else { 
                         new ConfirmDialog(MainActivity.this)
                                 .setTitle(attachment.name)
                                 .setContent(attachment.content)
@@ -1467,13 +1431,13 @@ public class MainActivity extends Activity {
                 cvDelete.setForeground(getDrawable(R.drawable.close_btn));
                 cvDelete.setCardBackgroundColor(Color.WHITE);
                 cvDelete.setElevation(0);
-                cvDelete.setOnClickListener(view -> { // 删除单个附件
+                cvDelete.setOnClickListener(view -> { 
                     llAttachmentList.removeView(llAttachment);
                     selectedAttachments.remove(attachment);
                     if (llAttachmentList.getChildCount() == 0) {
                         llAttachmentList.setVisibility(View.GONE);
                     }
-                    updateAttachmentButton(); // 更新附件按钮状态
+                    updateAttachmentButton(); 
                 });
 
                 llAttachment.addView(cvDelete);
@@ -1546,7 +1510,7 @@ public class MainActivity extends Activity {
         cvDeleteAll.setOnClickListener(view -> {
             llAttachmentList.removeAllViews();
             selectedAttachments.clear();
-            updateAttachmentButton(); // 更新附件按钮状态
+            updateAttachmentButton(); 
         });
 
         llUpload.addView(cvTakePhoto);
@@ -1555,13 +1519,13 @@ public class MainActivity extends Activity {
         llUpload.addView(cvDeleteAll);
         llPopup.addView(llUpload);
 
-        llPopup.setOnClickListener(view -> { // 点击空白处关闭弹出窗口
+        llPopup.setOnClickListener(view -> { 
             if (popupWindow.isShowing()) {
                 popupWindow.dismiss();
             }
         });
 
-        llAttachmentList.setOnClickListener(view -> { // 点击空白处关闭弹出窗口
+        llAttachmentList.setOnClickListener(view -> { 
             if (popupWindow.isShowing()) {
                 popupWindow.dismiss();
             }
@@ -1570,7 +1534,6 @@ public class MainActivity extends Activity {
         return popupWindow;
     }
 
-    // 根据URI添加附件
     private void addAttachment(Uri uri) {
         try {
             Log.d("MainActivity", "addAttachment: uri=" + uri);
@@ -1597,7 +1560,7 @@ public class MainActivity extends Activity {
                 }
                 selectedAttachments.add(ChatMessage.Attachment.createNew(ChatMessage.Attachment.Type.IMAGE, filename, bitmapToBase64(bitmap), false));
                 Log.d("MainActivity", "addImageAttachment: fileName=" + filename + " size=" + bitmap.getWidth() + "x" + bitmap.getHeight());
-                updateAttachmentButton(); // 更新附件按钮状态
+                updateAttachmentButton(); 
             } else {
                 String finalFilename = filename;
                 new DocumentParser(this).parseDocument(uri, mimeType, new DocumentParser.ParseCallback() {
@@ -1606,7 +1569,7 @@ public class MainActivity extends Activity {
                         selectedAttachments.add(ChatMessage.Attachment.createNew(ChatMessage.Attachment.Type.TEXT, finalFilename, text, false));
                         Log.d("MainActivity", "addAttachment: fileName=" + finalFilename + " size=" + text.length());
                         runOnUiThread(() -> {
-                            updateAttachmentButton(); // 更新附件按钮状态
+                            updateAttachmentButton(); 
                         });
                     }
 
@@ -1624,7 +1587,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 更新附件按钮
     private void updateAttachmentButton() {
         TextView tvNumber = findViewById(R.id.tv_attachment_num);
         if(selectedAttachments.size() > 0) {
@@ -1639,15 +1601,14 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 将聊天记录恢复到界面上
     private void reloadConversation(Conversation conversation) {
-        (findViewById(R.id.cv_new_chat)).performClick(); // 新建一个聊天
+        (findViewById(R.id.cv_new_chat)).performClick(); 
 
         currentConversation = conversation;
         multiChatList = conversation.messages;
 
-        llChatList.removeViewAt(0); // 删除占位TextView
-        for(ChatMessage chatItem : multiChatList) { // 依次添加对话布局
+        llChatList.removeViewAt(0); 
+        for(ChatMessage chatItem : multiChatList) { 
             if(chatItem.role == ChatRole.USER || (chatItem.role == ChatRole.ASSISTANT && chatItem.toolCalls.size() == 0)) {
                 LinearLayout llChatItem = addChatView(chatItem.role, chatItem.contentText, chatItem.attachments);
                 llChatItem.setTag(chatItem);
@@ -1656,15 +1617,14 @@ public class MainActivity extends Activity {
         scrollChatAreaToBottom();
     }
 
-    // 清空聊天界面
     private void clearChatListView() {
-        if(chatApiClient.isStreaming()){
-            chatApiClient.stop();
+        if(currentCall != null && !currentCall.isCanceled()){
+            currentCall.cancel();
         }
         llChatList.removeAllViews();
         ttsManager.stop();
 
-        TextView tv = new TextView(this); // 清空列表后添加一个占位TextView
+        TextView tv = new TextView(this); 
         tv.setTextColor(Color.parseColor("#000000"));
         tv.setTextSize(16);
         tv.setPadding(dpToPx(10), dpToPx(10), dpToPx(10), dpToPx(10));
@@ -1673,57 +1633,54 @@ public class MainActivity extends Activity {
         llChatList.addView(tv);
     }
 
-    // 处理启动Intent
     private void handleShareIntent(Intent intent) {
         if(intent != null){
             String action = intent.getAction();
-            if(Intent.ACTION_PROCESS_TEXT.equals(action)) { // 全局上下文菜单
+            if(Intent.ACTION_PROCESS_TEXT.equals(action)) { 
                 String text = intent.getStringExtra(Intent.EXTRA_PROCESS_TEXT);
                 if(text != null){
                     etUserInput.setText(text);
                 }
-            } else if(Intent.ACTION_SEND.equals(action)) { // 分享单个文件
+            } else if(Intent.ACTION_SEND.equals(action)) { 
                 String type = intent.getType();
                 if(type != null && type.startsWith("image/")) {
-                    Uri imageUri = intent.getParcelableExtra(Intent.EXTRA_STREAM); // 获取图片Uri
+                    Uri imageUri = intent.getParcelableExtra(Intent.EXTRA_STREAM); 
                     if (imageUri != null) {
-                        addAttachment(imageUri); // 添加图片到附件列表
+                        addAttachment(imageUri); 
                     }
                     if (!GlobalUtils.checkVisionSupport(GlobalDataHolder.getGptModel()))
                         Toast.makeText(this, R.string.toast_use_vision_model, Toast.LENGTH_LONG).show();
-                } else if(type != null && type.equals("text/plain") && intent.getStringExtra(Intent.EXTRA_TEXT) != null) { // 分享文本
+                } else if(type != null && type.equals("text/plain") && intent.getStringExtra(Intent.EXTRA_TEXT) != null) { 
                     String text = intent.getStringExtra(Intent.EXTRA_TEXT);
                     if(text != null) {
                         etUserInput.setText(text);
                     }
-                } else { // 分享文档
+                } else { 
                     Uri documentUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
                     if(documentUri != null) {
-                        addAttachment(documentUri); // 添加文档到附件列表
+                        addAttachment(documentUri); 
                     }
                 }
-            } else if(Intent.ACTION_VIEW.equals(action)) { // 打开文件
+            } else if(Intent.ACTION_VIEW.equals(action)) { 
                 Uri documentUri = intent.getData();
                 if(documentUri != null) {
-                    addAttachment(documentUri); // 添加文档到附件列表
+                    addAttachment(documentUri); 
                 }
-            } else if(Intent.ACTION_SEND_MULTIPLE.equals(action)) { // 分享多个文件
+            } else if(Intent.ACTION_SEND_MULTIPLE.equals(action)) { 
                 ArrayList<Uri> uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
                 for(Uri uri : uris) {
                     if(uri != null) {
-                        addAttachment(uri); // 添加到附件列表
+                        addAttachment(uri); 
                     }
                 }
             }
         }
     }
 
-    // 转换dp为px
     private int dpToPx(int dp) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, getResources().getDisplayMetrics());
     }
 
-    // 等比缩放Bitmap到给定的尺寸范围内
     private Bitmap resizeBitmap(Bitmap bitmap, int maxWidth, int maxHeight) {
         int width = bitmap.getWidth();
         int height = bitmap.getHeight();
@@ -1733,13 +1690,11 @@ public class MainActivity extends Activity {
         return Bitmap.createScaledBitmap(bitmap, (int)(width * scale), (int)(height * scale), true);
     }
 
-    // 将Base64编码转换为Bitmap
     private Bitmap base64ToBitmap(String base64) {
         byte[] bytes = Base64.decode(base64, Base64.NO_WRAP);
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
     }
 
-    // 将Bitmap转换为Base64编码
     private String bitmapToBase64(Bitmap bitmap) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         bitmap.compress(Bitmap.CompressFormat.JPEG, 100, baos);
@@ -1747,17 +1702,14 @@ public class MainActivity extends Activity {
         return Base64.encodeToString(bytes, Base64.NO_WRAP);
     }
 
-    // onDestroy->false onCreate->true
     public static boolean isAlive() {
         return isAlive;
     }
 
-    // onPause->false onResume->true
     public static boolean isRunning() {
         return isRunning;
     }
 
-    // 申请动态权限
     private void requestPermission() {
         String[] permissions = {
             Manifest.permission.RECORD_AUDIO,
@@ -1785,11 +1737,10 @@ public class MainActivity extends Activity {
         handleShareIntent(intent);
     }
 
-    // 根据当前的多窗口模式更新UI
     void updateForMultiWindowMode() {
-        if(isInMultiWindowMode()) { // 进入分屏/小窗，设置为全屏显示主界面
+        if(isInMultiWindowMode()) { 
             findViewById(R.id.ll_main).setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        } else { // 退出分屏/小窗，显示主界面在屏幕下方
+        } else { 
             findViewById(R.id.ll_main).setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
     }
@@ -1819,10 +1770,10 @@ public class MainActivity extends Activity {
         isAlive = false;
         LocalBroadcastManager.getInstance(this).unregisterReceiver(localReceiver);
         asrClient.destroy();
-        ttsManager.shutdown(); // 关闭 TTS
+        ttsManager.shutdown(); 
         webScraper.destroy();
         if(((multiChatList.size() > 0 && multiChatList.get(0).role != ChatRole.SYSTEM) || (multiChatList.size() > 1 && multiChatList.get(0).role == ChatRole.SYSTEM)) &&
-                GlobalDataHolder.getAutoSaveHistory()) // 包含有效对话则保存当前对话
+                GlobalDataHolder.getAutoSaveHistory()) 
             chatManager.addConversation(currentConversation);
         chatManager.removeEmptyConversations();
         chatManager.destroy();
