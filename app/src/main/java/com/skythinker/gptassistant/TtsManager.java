@@ -49,13 +49,27 @@ public class TtsManager {
         });
     }
 
+    /**
+     * 兼容性修复：适配 MainActivity.java 中调用的旧方法名 (MainActivity.java:851)
+     */
+    public void stopPreviousPlayback() {
+        stop();
+    }
+
+    /**
+     * 兼容性修复：适配 MainActivity.java 中调用的释放方法 (MainActivity.java:1921)
+     */
+    public void release() {
+        shutdown();
+    }
+
     public void speak(String rawText) {
         if (rawText == null || rawText.isEmpty()) return;
 
         // 1. 过滤 DeepSeek 的 <think> 标签
         String textWithoutThink = removeThinkTags(rawText);
         
-        // 2. 过滤标点符号 (新增)
+        // 2. 过滤标点符号，避免朗读无意义停顿
         String cleanText = removePunctuation(textWithoutThink);
         
         if (cleanText.trim().isEmpty()) return;
@@ -63,7 +77,8 @@ public class TtsManager {
         stop();
 
         boolean isBurmese = isBurmese(cleanText);
-        boolean useCloud = GlobalDataHolder.getInstance(context).isEnableCloudTts();
+        // 使用 GlobalDataHolder 里的全局静态方法获取设置
+        boolean useCloud = GlobalDataHolder.getUseCloudTts();
 
         if (isBurmese || useCloud) {
             String voiceId = isBurmese ? VOICE_BURMESE : VOICE_CHINESE;
@@ -77,9 +92,7 @@ public class TtsManager {
         return text.replaceAll("(?s)<think>.*?</think>", "").trim();
     }
     
-    // 新增：移除标点符号，避免朗读出来
     private String removePunctuation(String text) {
-        // 替换常见标点为空格，保留文字和数字
         return text.replaceAll("[\\p{P}\\p{S}]", " ");
     }
 
@@ -108,7 +121,7 @@ public class TtsManager {
         jsonBody.set("input", text);
         jsonBody.set("voice", voiceId);
 
-        // 适配 OkHttp 3/4 参数顺序
+        // ★★★ 修复：参数顺序调整 (MediaType, String) 适配特定 OkHttp 3.x/4.x 版本 ★★★
         RequestBody body = RequestBody.create(
                 MediaType.parse("application/json; charset=utf-8"),
                 jsonBody.toString()
