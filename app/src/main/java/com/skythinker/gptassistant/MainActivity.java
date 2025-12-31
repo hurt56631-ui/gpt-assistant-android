@@ -20,14 +20,15 @@ import android.graphics.drawable.PaintDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
-import android.speech.tts.TextToSpeech;
-import android.speech.tts.UtteranceProgressListener;
+import android.text.Editable;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.ImageSpan;
@@ -46,6 +47,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.GridLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -62,20 +64,31 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
-
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONException;
 import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import io.noties.prism4j.annotations.PrismBundle;
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 import com.skythinker.gptassistant.ChatManager.ChatMessage.ChatRole;
 import com.skythinker.gptassistant.ChatManager.ChatMessage;
@@ -101,14 +114,17 @@ public class MainActivity extends Activity {
     private static boolean isAlive = false;
     private static boolean isRunning = false;
 
+    // ChatApiClient chatApiClient = null; // 保留引用以防遗留代码调用，但核心逻辑已替换
     ChatApiClient chatApiClient = null;
+    
+    // ★★★ 新增：OkHttp 客户端与请求控制 ★★★
+    private OkHttpClient okHttpClient;
+    private Call currentCall;
     private String chatApiBuffer = "";
 
-    private TextToSpeech tts = null;
+    // ★★★ 新增：替换原有的 TextToSpeech 为 TtsManager ★★★
+    private TtsManager ttsManager;
     private boolean ttsEnabled = true;
-    final private List<String> ttsSentenceSeparator = Arrays.asList("。", ".", "？", "?", "！", "!", "……", "\n"); // 用于为TTS断句
-    private int ttsSentenceEndIndex = 0;
-    private String ttsLastId = "";
 
     private boolean multiChat = false;
     ChatManager chatManager = null;
@@ -144,49 +160,22 @@ public class MainActivity extends Activity {
             }
         });
 
-        handler = new Handler(); // 初始化Handler
+        handler = new Handler(Looper.getMainLooper()); // 初始化Handler
 
         GlobalDataHolder.init(this); // 初始化全局共享数据
 
         // 初始化Markdown渲染器
         markdownRenderer = new MarkdownRenderer(this);
 
-        // 初始化TTS
-        tts = new TextToSpeech(this, status -> {
-            if(status == TextToSpeech.SUCCESS) {
-                int res = tts.setLanguage(Locale.getDefault());
-                if(res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e("TTS", "Unsupported language.");
-                }else{
-                    tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                        @Override
-                        public void onStart(String utteranceId) {
-//                            Log.d("TTS", "onStart: " + utteranceId);
-                        }
+        // ★★★ 初始化新的 TTS 管理器 (替换原有的 TextToSpeech) ★★★
+        ttsManager = new TtsManager(this);
 
-                        @Override
-                        public void onDone(String utteranceId) {
-//                            Log.d("TTS", "onDone: " + utteranceId);
-                            if(ttsLastId.equals(utteranceId) && !chatApiClient.isStreaming()) {
-                                Log.d("TTS", "Queue finished");
-                                if(multiVoice) {
-                                    Intent intent = new Intent("com.skythinker.gptassistant.KEY_SPEECH_START");
-                                    LocalBroadcastManager.getInstance(MainActivity.this).sendBroadcast(intent);
-                                }
-                            }
-                        }
-
-                        @Override
-                        public void onError(String utteranceId) {
-                            Log.e("TTS", "onError: " + utteranceId);
-                        }
-                    });
-                    Log.d("TTS", "Init success.");
-                }
-            }else{
-                Log.e("TTS", "Init failed. ErrorCode: " + status);
-            }
-        });
+        // ★★★ 初始化 OkHttp (用于 DeepSeek/OpenAI 接口) ★★★
+        okHttpClient = new OkHttpClient.Builder()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .build();
 
         setContentView(R.layout.activity_main); // 设置主界面布局
         overridePendingTransition(R.anim.translate_up_in, R.anim.translate_down_out); // 设置进入动画
@@ -237,205 +226,20 @@ public class MainActivity extends Activity {
 
         chatManager = new ChatManager(this); // 初始化聊天记录管理器
         ChatMessage.setContext(this); // 设置聊天消息的上下文（用于读写文件）
-//        chatManager.removeAllConversations(true); // 重置聊天记录（调试用）
-//        for(int i = 0; i < 50; i++) {
-//            Conversation conversation = chatManager.newConversation();
-//            conversation.messages.add(new ChatMessage(ChatRole.USER).setText("你好"));
-//            conversation.messages.add(new ChatMessage(ChatRole.ASSISTANT).setText("你好，有什么可以帮您？" + i));
-//        }
 
         webScraper = new WebScraper(this, findViewById(R.id.ll_main_base)); // 初始化网页抓取器
 
-        // 初始化GPT客户端
+        // 初始化GPT客户端 (保留以兼容旧逻辑，但主要发送逻辑已重写)
         chatApiClient = new ChatApiClient(this,
                 GlobalDataHolder.getGptApiHost(),
                 GlobalDataHolder.getGptApiKey(),
                 GlobalDataHolder.getGptModel(),
-                new ChatApiClient.OnReceiveListener() {
-                    private long lastRenderTime = 0;
-
-                    @Override
-                    public void onMsgReceive(String message) { // 收到GPT回复（增量）
-                        chatApiBuffer += message;
-                        if(System.currentTimeMillis() - lastRenderTime > 100) { // 限制最高渲染频率10Hz
-                            handler.post(() -> {
-                                boolean isBottom = svChatArea.getChildAt(0).getBottom()
-                                        <= svChatArea.getHeight() + svChatArea.getScrollY(); // 判断消息布局是否在底部
-
-                                markdownRenderer.render(tvGptReply, chatApiBuffer); // 渲染Markdown
-
-                                if (isBottom) {
-                                    scrollChatAreaToBottom(); // 渲染前在底部则渲染后滚动到底部
-                                }
-
-                                if (currentTemplateParams.getBool("speak", ttsEnabled)) { // 处理TTS
-                                    if (chatApiBuffer.startsWith("<think>\n") && !chatApiBuffer.contains("\n</think>\n")) { // 不朗读思维链部分
-                                        ttsSentenceEndIndex = tvGptReply.getText().toString().length(); // 正在思考则设置tts起点在末尾
-                                    } else {
-                                        String wholeText = tvGptReply.getText().toString(); // 获取可朗读的文本
-                                        if (ttsSentenceEndIndex < wholeText.length()) {
-                                            int nextSentenceEndIndex = wholeText.length();
-                                            boolean found = false;
-                                            for (String separator : ttsSentenceSeparator) { // 查找最后一个断句分隔符
-                                                int index = wholeText.indexOf(separator, ttsSentenceEndIndex);
-                                                if (index != -1 && index < nextSentenceEndIndex) {
-                                                    nextSentenceEndIndex = index + separator.length();
-                                                    found = true;
-                                                }
-                                            }
-                                            if (found) { // 找到断句分隔符则添加到朗读队列
-                                                String sentence = wholeText.substring(ttsSentenceEndIndex, nextSentenceEndIndex);
-                                                ttsSentenceEndIndex = nextSentenceEndIndex;
-                                                String id = UUID.randomUUID().toString();
-                                                tts.speak(sentence, TextToSpeech.QUEUE_ADD, null, id);
-                                                ttsLastId = id;
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-
-                            lastRenderTime = System.currentTimeMillis();
-                        }
-                    }
-
-                    @Override
-                    public void onFinished(boolean completed) { // GPT回复完成
-                        handler.post(() -> {
-                            String referenceStr = "\n\n" + getString(R.string.text_ref_web_prefix);
-                            int referenceCount = 0;
-                            if(completed) { // 如果是完整回复则添加参考网页
-                                int questionIndex = multiChatList.size() - 1;
-                                while(questionIndex >= 0 && multiChatList.get(questionIndex).role != ChatRole.USER) { // 找到上一个提问消息
-                                    questionIndex--;
-                                }
-                                for(int i = questionIndex + 1; i < multiChatList.size(); i++) { // 依次检查函数调用，并获取网页URL
-                                    if(multiChatList.get(i).role == ChatRole.FUNCTION
-                                        && multiChatList.get(i-1).role == ChatRole.ASSISTANT
-                                        && multiChatList.get(i-1).toolCalls.size() > 0) {
-                                        for(ChatMessage.ToolCall toolCall : multiChatList.get(i-1).toolCalls) {
-                                            if(toolCall.functionName.equals("get_html_text")) {
-                                                String url = new JSONObject(toolCall.arguments).getStr("url");
-                                                referenceStr += String.format("[[%s]](%s) ", ++referenceCount, url);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            try {
-                                markdownRenderer.render(tvGptReply, chatApiBuffer); // 渲染Markdown
-                                String ttsText = tvGptReply.getText().toString();
-                                if(currentTemplateParams.getBool("speak", ttsEnabled) && ttsText.length() > ttsSentenceEndIndex) { // 如果TTS开启则朗读剩余文本
-                                    String id = UUID.randomUUID().toString();
-                                    tts.speak(ttsText.substring(ttsSentenceEndIndex), TextToSpeech.QUEUE_ADD, null, id);
-                                    ttsLastId = id;
-                                }
-                                if(referenceCount > 0)
-                                    chatApiBuffer += referenceStr; // 添加参考网页
-                                multiChatList.add(new ChatMessage(ChatRole.ASSISTANT).setText(chatApiBuffer)); // 保存回复内容到聊天数据列表
-                                ((LinearLayout) tvGptReply.getParent()).setTag(multiChatList.get(multiChatList.size() - 1)); // 绑定该聊天数据到布局
-                                markdownRenderer.render(tvGptReply, chatApiBuffer); // 再次渲染Markdown添加参考网页
-                                btSend.setImageResource(R.drawable.send_btn);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        handler.post(() -> {
-                            String errText = String.format(getString(R.string.text_gpt_error_prefix) + "%s", message);
-                            if(tvGptReply != null){
-                                tvGptReply.setText(errText);
-                            }else{
-                                Toast.makeText(MainActivity.this, errText, Toast.LENGTH_LONG).show();
-                            }
-                            btSend.setImageResource(R.drawable.send_btn);
-                        });
-                    }
-
-                    private final ArrayList<ChatApiClient.CallingFunction> callingFunctions = new ArrayList<>();
-
-                    private void callFunction(ChatApiClient.CallingFunction function) {
-                        if (function.name.equals("get_html_text")) { // 调用联网函数
-                            try {
-                                JSONObject argJson = new JSONObject(function.arguments);
-                                String url = argJson.getStr("url"); // 获取URL
-                                runOnUiThread(() -> {
-                                    markdownRenderer.render(tvGptReply, String.format(getString(R.string.text_visiting_web_prefix) + "[%s](%s)", URLDecoder.decode(url), url));
-                                    webScraper.load(url, new WebScraper.Callback() { // 抓取网页内容
-                                        @Override
-                                        public void onLoadResult(String result) {
-                                            processFunctionResult(function, result); // 返回网页内容给GPT
-//                                            Log.d("FunctionCall", String.format("Response: %s", result));
-                                        }
-
-                                        @Override
-                                        public void onLoadFail(String message) {
-                                            processFunctionResult(function, "Failed to get response of this url. " + message);
-                                        }
-                                    });
-                                    Log.d("FunctionCall", String.format("Loading url: %s", url));
-                                });
-                            } catch (JSONException e) {
-                                e.printStackTrace();
-                                processFunctionResult(function, "Error when getting response.");
-                            }
-                        } else if (function.name.equals("exit_voice_chat")) {
-                            if (multiVoice)
-                                runOnUiThread(() -> findViewById(R.id.cv_voice_chat).performClick());
-                            processFunctionResult(function, "OK");
-                        } else {
-                            processFunctionResult(function, "Function not found.");
-                            Log.d("FunctionCall", String.format("Function not found: %s", function.name));
-                        }
-                    }
-                    private void processFunctionResult(ChatApiClient.CallingFunction function, String result) {
-                        Log.d("MainActivity", "function result: " + function.name);
-                        Log.d("MainActivity", "function result: " + result);
-                        multiChatList.add(new ChatMessage(ChatRole.FUNCTION).addFunctionCall(function.toolId, function.name, function.arguments, result));
-                        callingFunctions.remove(function); // 从函数调用列表中移除已完成的函数
-                        if(callingFunctions.size() == 0) { // 所有函数调用完成，发送给GPT
-                            handler.post(() -> chatApiClient.sendPromptList(multiChatList));
-                        } else {
-                            handler.post(() -> callFunction(callingFunctions.get(0))); // 继续处理下一个函数调用
-                        }
-                    }
-
-                    @Override
-                    public void onFunctionCall(ArrayList<ChatApiClient.CallingFunction> functions) { // 收到函数调用请求
-                        ChatMessage assistantMessage = new ChatMessage(ChatRole.ASSISTANT);
-                        for(ChatApiClient.CallingFunction function : functions) {
-                            Log.d("FunctionCall", String.format("%s: %s", function.name, function.arguments));
-                            assistantMessage.addFunctionCall(function.toolId, function.name, function.arguments, null);
-                        }
-                        multiChatList.add(assistantMessage); // 保存请求到聊天数据列表
-
-                        callingFunctions.clear();
-                        callingFunctions.addAll(functions); // 保存函数调用列表（浅拷贝）
-
-                        callFunction(callingFunctions.get(0)); // 处理第一个函数调用
-                    }
-                });
+                null); // Callback 不再使用，因为我们用 OkHttp 直接处理
 
         chatApiClient.setTemperature(GlobalDataHolder.getGptTemperature());
 
-        // 发送按钮点击事件
-        btSend.setOnClickListener(view -> {
-            if (chatApiClient.isStreaming()) {
-                chatApiClient.stop();
-            }else if(webScraper.isLoading()){
-                webScraper.stopLoading();
-                if(tvGptReply != null)
-                    tvGptReply.setText(R.string.text_cancel_web);
-                btSend.setImageResource(R.drawable.send_btn);
-            }else{
-                tts.stop();
-                sendQuestion(null);
-                etUserInput.setText("");
-            }
-        });
+        // ★★★ 核心修改：设置输入框监听与按钮状态切换 (发送/语音) ★★★
+        setupInputListener();
 
         // 附件选择按钮点击事件
         btAttachment.setOnClickListener(view -> {
@@ -452,7 +256,7 @@ public class MainActivity extends Activity {
             wm.updateViewLayout(container, params);
         });
 
-        // 长按输入框开始录音或清空内容
+        // 长按输入框开始录音或清空内容 (保留原逻辑作为备用)
         etUserInput.setOnLongClickListener(view -> {
             if(etUserInput.getText().toString().equals("")) {
                 Intent broadcastIntent = new Intent("com.skythinker.gptassistant.KEY_SPEECH_START");
@@ -515,7 +319,7 @@ public class MainActivity extends Activity {
             }else{
                 ((CardView) findViewById(R.id.cv_tts_off)).setForeground(getDrawable(R.drawable.tts_off_enable));
                 GlobalUtils.showToast(this, R.string.toast_tts_off, false);
-                tts.stop();
+                ttsManager.stop();
             }
         });
 
@@ -529,14 +333,12 @@ public class MainActivity extends Activity {
             if(multiVoice){
                 ((CardView) findViewById(R.id.cv_voice_chat)).setForeground(getDrawable(R.drawable.voice_chat_btn_enabled));
                 asrClient.setEnableAutoStop(true);
-//                chatApiClient.addFunction("exit_voice_chat", "this should be called when a conversation ends", "{}", new String[]{});
                 Intent intent = new Intent("com.skythinker.gptassistant.KEY_SPEECH_START");
                 LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
                 GlobalUtils.showToast(this, R.string.toast_multi_voice_on, false);
             } else {
                 ((CardView) findViewById(R.id.cv_voice_chat)).setForeground(getDrawable(R.drawable.voice_chat_btn));
                 asrClient.setEnableAutoStop(false);
-//                chatApiClient.removeFunction("exit_voice_chat");
                 Intent intent = new Intent("com.skythinker.gptassistant.KEY_SPEECH_STOP");
                 LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
                 GlobalUtils.showToast(this, R.string.toast_multi_voice_off, false);
@@ -644,7 +446,7 @@ public class MainActivity extends Activity {
             public void onReceive(Context context, Intent intent) {
                 String action = intent.getAction();
                 if(action.equals("com.skythinker.gptassistant.KEY_SPEECH_START")) { // 开始语音识别
-                    tts.stop();
+                    ttsManager.stop();
                     asrClient.startRecognize();
                     asrStartTime = System.currentTimeMillis();
                     etUserInput.setText("");
@@ -657,8 +459,7 @@ public class MainActivity extends Activity {
                         asrClient.stopRecognize();
                     }
                 } else if(action.equals("com.skythinker.gptassistant.KEY_SEND")) { // 发送问题
-                    if(!chatApiClient.isStreaming())
-                        sendQuestion(null);
+                    sendQuestion(null);
                 } else if(action.equals("com.skythinker.gptassistant.SHOW_KEYBOARD")) { // 弹出软键盘
                     etUserInput.requestFocus();
                     InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
@@ -693,6 +494,113 @@ public class MainActivity extends Activity {
         if(!BuildConfig.VERSION_NAME.equals(GlobalDataHolder.getLatestVersion())) {
             GlobalUtils.showToast(this, getString(R.string.toast_update_available), false);
         }
+    }
+
+    // ★★★ 新增：设置输入框监听和按钮模式切换 ★★★
+    private void setupInputListener() {
+        // 初始状态：默认为语音模式
+        switchToVoiceMode();
+
+        etUserInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (s.toString().trim().length() > 0) {
+                    switchToSendMode();
+                } else {
+                    switchToVoiceMode();
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+    }
+
+    // ★★★ 切换到发送模式（箭头图标） ★★★
+    private void switchToSendMode() {
+        if (btSend.getTag() != null && btSend.getTag().equals("SEND")) return;
+
+        btSend.setImageResource(R.drawable.ic_send_round); // 确保你有这个资源文件
+        btSend.setTag("SEND");
+
+        btSend.setOnClickListener(view -> {
+            if(webScraper.isLoading() || (currentCall != null && !currentCall.isCanceled())){
+                // 如果正在加载网页或正在请求API，点击则取消
+                if (webScraper.isLoading()) webScraper.stopLoading();
+                if (currentCall != null) currentCall.cancel();
+                
+                if(tvGptReply != null)
+                    tvGptReply.setText(R.string.text_cancel_web);
+                btSend.setImageResource(R.drawable.ic_send_round);
+            } else {
+                ttsManager.stop();
+                sendQuestion(null);
+                etUserInput.setText("");
+            }
+        });
+        btSend.setOnLongClickListener(null); // 发送模式下长按无效
+    }
+
+    // ★★★ 切换到语音模式（麦克风图标） ★★★
+    private void switchToVoiceMode() {
+        if (btSend.getTag() != null && btSend.getTag().equals("VOICE")) return;
+
+        btSend.setImageResource(R.drawable.ic_mic_round); // 确保你有这个资源文件
+        btSend.setTag("VOICE");
+
+        // 点击：开始语音识别
+        btSend.setOnClickListener(view -> {
+            Intent broadcastIntent = new Intent("com.skythinker.gptassistant.KEY_SPEECH_START");
+            LocalBroadcastManager.getInstance(this).sendBroadcast(broadcastIntent);
+        });
+
+        // 长按：选择语言
+        btSend.setOnLongClickListener(view -> {
+            showLanguageSelectionDialog();
+            return true;
+        });
+    }
+
+    // ★★★ 显示语言选择对话框 ★★★
+    private void showLanguageSelectionDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("选择语音识别语言");
+
+        GridLayout gridLayout = new GridLayout(this);
+        gridLayout.setColumnCount(3);
+        gridLayout.setPadding(dpToPx(10), dpToPx(10), dpToPx(10), dpToPx(10));
+
+        addLangOption(gridLayout, "🇨🇳\n中文", GlobalDataHolder.LANG_ZH);
+        addLangOption(gridLayout, "🇺🇸\nEnglish", GlobalDataHolder.LANG_EN);
+        addLangOption(gridLayout, "🇲🇲\n缅甸语", GlobalDataHolder.LANG_MM);
+
+        ScrollView sv = new ScrollView(this);
+        sv.addView(gridLayout);
+        builder.setView(sv);
+        builder.setNegativeButton("取消", null);
+        builder.show();
+    }
+
+    private void addLangOption(GridLayout grid, String label, String langCode) {
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextSize(16);
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding(dpToPx(15), dpToPx(15), dpToPx(15), dpToPx(15));
+        tv.setBackgroundResource(android.R.drawable.btn_default);
+
+        GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+        params.setMargins(dpToPx(5), dpToPx(5), dpToPx(5), dpToPx(5));
+        tv.setLayoutParams(params);
+
+        tv.setOnClickListener(v -> {
+            GlobalDataHolder.getInstance(this).setCurrentLanguage(langCode);
+            Toast.makeText(this, "已切换为: " + langCode, Toast.LENGTH_SHORT).show();
+        });
+        grid.addView(tv);
     }
 
     // 设置当前使用的语音识别接口
@@ -966,7 +874,6 @@ public class MainActivity extends Activity {
         }
         currentTemplateParams = GlobalDataHolder.getTabDataList().get(selectedTab).parseParams();
         Log.d("MainActivity", "switch template: params=" + currentTemplateParams);
-        chatApiClient.setModel(currentTemplateParams.getStr("model", GlobalDataHolder.getGptModel()));
         setNetworkEnabled(currentTemplateParams.getBool("network", GlobalDataHolder.getEnableInternetAccess()));
         updateTabListView();
         updateTemplateParamsView();
@@ -1083,9 +990,8 @@ public class MainActivity extends Activity {
                     multiChatList.remove(index);
             }
             if(tvContent == tvGptReply) { // 删除的是GPT正在回复的消息框，停止回复和TTS
-                if(chatApiClient.isStreaming())
-                    chatApiClient.stop();
-                tts.stop();
+                if(currentCall != null) currentCall.cancel();
+                ttsManager.stop();
             }
             llChatList.removeView(llOuter);
             if(llChatList.getChildCount() == 0) // 如果删除后聊天列表为空，则添加占位TextView
@@ -1175,7 +1081,7 @@ public class MainActivity extends Activity {
         return llOuter;
     }
 
-    // 发送一个提问，input为null时则从输入框获取
+    // ★★★ 核心重构：发送提问，集成 DeepSeek/OkHttp ★★★
     private void sendQuestion(String input){
         boolean isMultiChat = currentTemplateParams.getBool("chat", multiChat);
 
@@ -1215,23 +1121,6 @@ public class MainActivity extends Activity {
             llChatList.removeViewAt(0);
         }
 
-//        if(isMultiChat && llChatList.getChildCount() > 0) { // 连续对话模式下，将第一条提问改写为添加模板后的内容（历史遗留，忘记为什么这么写了，先留着）
-//            LinearLayout llFirst = (LinearLayout) llChatList.getChildAt(0);
-//            TextView tvFirst = (TextView) llFirst.getChildAt(1);
-//            ChatMessage firstChat = (ChatMessage) llFirst.getTag();
-//            if(firstChat.role == ChatRole.USER) {
-//                if (firstChat.contentImageBase64 != null && tvFirst.getText().toString().endsWith("\n ")) { // 若有附加图片则也要一并添加
-//                    SpannableString oldText = (SpannableString) tvFirst.getText();
-//                    ImageSpan imgSpan = oldText.getSpans(oldText.length() - 1, oldText.length(), ImageSpan.class)[0];
-//                    SpannableString newText = new SpannableString(firstChat.contentText + "\n ");
-//                    newText.setSpan(imgSpan, newText.length() - 1, newText.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-//                    tvFirst.setText(newText);
-//                } else {
-//                    tvFirst.setText(firstChat.contentText);
-//                }
-//            }
-//        }
-
         if(GlobalDataHolder.getOnlyLatestWebResult()) { // 若设置为仅保留最新网页数据，删除之前的所有网页数据
             for (int i = 0; i < multiChatList.size(); i++) {
                 ChatMessage chatItem = multiChatList.get(i);
@@ -1257,13 +1146,118 @@ public class MainActivity extends Activity {
         scrollChatAreaToBottom();
 
         chatApiBuffer = "";
-        ttsSentenceEndIndex = 0;
+        
         if (BuildConfig.DEBUG && userInput.startsWith("#markdowndebug\n")) { // Markdown渲染测试
             markdownRenderer.render(tvGptReply, userInput.replace("#markdowndebug\n", ""));
         } else {
-            chatApiClient.sendPromptList(multiChatList);
-            selectedAttachments.clear();
+            // ★★★ DeepSeek 网络请求逻辑 (替换原有的 chatApiClient.sendPromptList) ★★★
+            String apiKey = GlobalDataHolder.getGptApiKey();
+            if (apiKey == null || apiKey.isEmpty()) {
+                Toast.makeText(this, "请先在设置中配置 API Key", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            // 构建请求体 (使用 Hutool 防止 NPE)
+            JSONObject jsonBody = new JSONObject();
+            jsonBody.set("model", GlobalDataHolder.getGptModel());
+            jsonBody.set("stream", true);
+            
+            // 转换历史记录
+            JSONArray messages = new JSONArray();
+            for (ChatMessage msg : multiChatList) {
+                JSONObject m = new JSONObject();
+                m.set("role", msg.role.toString().toLowerCase());
+                m.set("content", msg.contentText);
+                messages.add(m);
+            }
+            jsonBody.set("messages", messages);
+
+            RequestBody body = RequestBody.create(
+                    jsonBody.toString(), 
+                    MediaType.parse("application/json; charset=utf-8")
+            );
+
+            // 适配自定义 Host
+            String host = GlobalDataHolder.getGptApiHost();
+            if (host.endsWith("/")) host = host.substring(0, host.length() - 1);
+            String url = host + "/chat/completions";
+
+            Request request = new Request.Builder()
+                    .url(url) 
+                    .addHeader("Authorization", "Bearer " + apiKey)
+                    .post(body)
+                    .build();
+
             btSend.setImageResource(R.drawable.cancel_btn);
+            
+            // 发起请求
+            currentCall = okHttpClient.newCall(request);
+            currentCall.enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    if (call.isCanceled()) return;
+                    runOnUiThread(() -> {
+                        tvGptReply.setText("请求失败: " + e.getMessage());
+                        btSend.setImageResource(R.drawable.ic_send_round);
+                    });
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    if (!response.isSuccessful()) {
+                        runOnUiThread(() -> {
+                            tvGptReply.setText("服务器错误: " + response.code());
+                            btSend.setImageResource(R.drawable.ic_send_round);
+                        });
+                        return;
+                    }
+
+                    InputStream is = response.body().byteStream();
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.startsWith("data: ")) {
+                            String data = line.substring(6).trim();
+                            if (data.equals("[DONE]")) break;
+                            try {
+                                JSONObject json = JSONUtil.parseObj(data);
+                                JSONArray choices = json.getJSONArray("choices");
+                                if (choices != null && !choices.isEmpty()) {
+                                    JSONObject delta = choices.getJSONObject(0).getJSONObject("delta");
+                                    if (delta != null && delta.containsKey("content")) {
+                                        String content = delta.getStr("content");
+                                        if (content != null) {
+                                            chatApiBuffer += content;
+                                            runOnUiThread(() -> {
+                                                markdownRenderer.render(tvGptReply, chatApiBuffer);
+                                                scrollChatAreaToBottom();
+                                            });
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                // 忽略解析错误
+                            }
+                        }
+                    }
+
+                    // 完成后处理
+                    runOnUiThread(() -> {
+                        // 保存助手回复
+                        multiChatList.add(new ChatMessage(ChatRole.ASSISTANT).setText(chatApiBuffer));
+                        ((LinearLayout) tvGptReply.getParent()).setTag(multiChatList.get(multiChatList.size() - 1));
+                        
+                        // 触发 TTS
+                        if (ttsEnabled) {
+                            ttsManager.speak(chatApiBuffer);
+                        }
+                        
+                        btSend.setImageResource(R.drawable.ic_send_round);
+                    });
+                }
+            });
+
+            selectedAttachments.clear();
             updateAttachmentButton(); // 更新附件按钮状态
         }
     }
@@ -1547,7 +1541,7 @@ public class MainActivity extends Activity {
             chatApiClient.stop();
         }
         llChatList.removeAllViews();
-        tts.stop();
+        ttsManager.stop();
 
         TextView tv = new TextView(this); // 清空列表后添加一个占位TextView
         tv.setTextColor(Color.parseColor("#000000"));
@@ -1704,8 +1698,7 @@ public class MainActivity extends Activity {
         isAlive = false;
         LocalBroadcastManager.getInstance(this).unregisterReceiver(localReceiver);
         asrClient.destroy();
-        tts.stop();
-        tts.shutdown();
+        ttsManager.shutdown(); // 关闭 TTS
         webScraper.destroy();
         if(((multiChatList.size() > 0 && multiChatList.get(0).role != ChatRole.SYSTEM) || (multiChatList.size() > 1 && multiChatList.get(0).role == ChatRole.SYSTEM)) &&
                 GlobalDataHolder.getAutoSaveHistory()) // 包含有效对话则保存当前对话
