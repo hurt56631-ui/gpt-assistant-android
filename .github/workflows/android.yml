@@ -12,7 +12,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    
+      with:
+        submodules: recursive  # 关键：如果有子模块(asr_core)，必须递归拉取
+
     - name: set up JDK 11
       uses: actions/setup-java@v3
       with:
@@ -23,13 +25,52 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    # ★★★ 关键步骤 1：创建一个空的华为配置文件 ★★★
-    # 华为插件找不到这个文件会报错，这里创建一个空的骗过它
-    - name: Create dummy agconnect-services.json
-      run: echo '{}' > app/agconnect-services.json
+    # ★★★ 核心修复：创建一个结构完整的伪造配置文件 ★★★
+    # 华为插件需要解析 client/app_id 等字段，缺一不可
+    - name: Create Mock agconnect-services.json
+      run: |
+        echo '{
+          "client": {
+            "cp_id": "890086000000000000",
+            "is_encrypted": 0,
+            "client_id": "100000000000000000",
+            "client_secret": "mock_secret_key_for_build_pass_only_xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "project_id": "100000000000000000",
+            "app_id": "100000000000000000",
+            "api_key": "mock_api_key_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "package_name": "com.skythinker.gptassistant",
+            "service": {
+              "analytics": {
+                "channel_id": "",
+                "collector_url": "datacollector-drcn.dt.hicloud.com,datacollector-drcn.dt.huawei.com",
+                "resource_id": "p1",
+                "sys_res_d": "10"
+              },
+              "search": {
+                "url": "https://search-drcn.cloud.huawei.com"
+              },
+              "ml": {
+                "service_endpoint": "https://ml-api-drcn.ai.dbankcloud.cn,https://ml-api-drcn.ai.huawei.com"
+              },
+              "cloudstorage": {
+                "storage_url": "https://ops-drcn.platform.dbankcloud.cn,https://ops-drcn.platform.huawei.com"
+              }
+            }
+          },
+          "agcgw": {
+            "backurl": "connect-drcn.dbankcloud.cn",
+            "url": "connect-drcn.hispace.hicloud.com",
+            "websocketbackurl": "connect-ws-drcn.hispace.dbankcloud.cn",
+            "websocketurl": "connect-ws-drcn.hispace.hicloud.com"
+          },
+          "app_info": {
+            "app_id": "100000000000000000",
+            "package_name": "com.skythinker.gptassistant"
+          },
+          "region": "CN",
+          "configuration_version": "3.0"
+        }' > app/agconnect-services.json
 
-    # ★★★ 关键步骤 2：只编译 Debug 包 ★★★
-    # 原来的 'build' 命令会尝试打 Release 包，那需要签名文件(jks)，你没上传也会报错。
-    # 改成 'assembleDebug' 只打测试包，不需要签名。
+    # 使用 --stacktrace 打印详细错误，如果这次还失败，我们需要看具体的报错信息
     - name: Build Debug APK
-      run: ./gradlew assembleDebug
+      run: ./gradlew assembleDebug --stacktrace
