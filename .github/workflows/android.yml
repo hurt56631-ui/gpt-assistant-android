@@ -23,5 +23,13 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build with Gradle
-      run: ./gradlew build
+    # ★★★ 关键步骤 1：创建一个空的华为配置文件 ★★★
+    # 华为插件找不到这个文件会报错，这里创建一个空的骗过它
+    - name: Create dummy agconnect-services.json
+      run: echo '{}' > app/agconnect-services.json
+
+    # ★★★ 关键步骤 2：只编译 Debug 包 ★★★
+    # 原来的 'build' 命令会尝试打 Release 包，那需要签名文件(jks)，你没上传也会报错。
+    # 改成 'assembleDebug' 只打测试包，不需要签名。
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug
