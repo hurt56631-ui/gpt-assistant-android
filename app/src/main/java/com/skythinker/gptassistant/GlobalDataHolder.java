@@ -16,6 +16,15 @@ import java.util.List;
 import java.util.Locale;
 
 public class GlobalDataHolder {
+    // --- 新增常量 ---
+    public static final String LANG_ZH = "zh-CN";
+    public static final String LANG_EN = "en-US";
+    public static final String LANG_MM = "my-MM";
+
+    // --- 单例实例 ---
+    private static GlobalDataHolder instance;
+
+    // --- 原有及新增静态字段 ---
     private static List<PromptTabData> tabDataList = null;
     private static boolean asrUseWhisper;
     private static boolean asrUseGoogle;
@@ -40,10 +49,24 @@ public class GlobalDataHolder {
     private static boolean autoSaveHistory;
     private static boolean useGitee;
     private static String latestVersion;
+    
+    // --- 新增字段 ---
+    private static String currentLanguage;
+    private static boolean enableCloudTts;
+
     private static SharedPreferences sp = null;
+
+    // 私有构造函数，用于单例
+    private GlobalDataHolder() {}
 
     public static void init(Context context) {
         sp = context.getSharedPreferences("gpt_assistant", Context.MODE_PRIVATE);
+        
+        // 初始化单例
+        if (instance == null) {
+            instance = new GlobalDataHolder();
+        }
+
         loadTabDataList();
         if(tabDataList.size() == 0) {
             tabDataList.add(new PromptTabData(context.getString(R.string.text_default_tab_title), context.getString(R.string.text_default_tab_content)));
@@ -62,7 +85,62 @@ public class GlobalDataHolder {
         loadHistorySetting();
         loadOnlineResourceSetting();
         loadUpdateSetting();
+        
+        // 加载新功能设置
+        loadLanguageSetting();
+        loadCloudTtsSetting();
     }
+
+    // --- 新增：获取单例方法 (适配 MainActivity) ---
+    public static synchronized GlobalDataHolder getInstance(Context context) {
+        if (instance == null) {
+            init(context);
+        }
+        return instance;
+    }
+
+    // --- 新增：实例方法 (适配 MainActivity) ---
+    public String getCurrentLanguage() {
+        return currentLanguage;
+    }
+
+    public void setCurrentLanguage(String language) {
+        saveLanguageSetting(language);
+    }
+
+    public boolean isEnableCloudTts() {
+        return enableCloudTts;
+    }
+
+    public void setEnableCloudTts(boolean enable) {
+        saveCloudTtsSetting(enable);
+    }
+    
+    // --- 新增：加载/保存 语言设置 ---
+    public static void loadLanguageSetting() {
+        currentLanguage = sp.getString("target_language", LANG_ZH);
+    }
+
+    public static void saveLanguageSetting(String language) {
+        currentLanguage = language;
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putString("target_language", currentLanguage);
+        editor.apply();
+    }
+
+    // --- 新增：加载/保存 云端TTS设置 ---
+    public static void loadCloudTtsSetting() {
+        enableCloudTts = sp.getBoolean("enable_cloud_tts", true);
+    }
+
+    public static void saveCloudTtsSetting(boolean enable) {
+        enableCloudTts = enable;
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putBoolean("enable_cloud_tts", enableCloudTts);
+        editor.apply();
+    }
+
+    // --- 原有方法保持不变 ---
 
     public static List<PromptTabData> getTabDataList() {
         return tabDataList;
